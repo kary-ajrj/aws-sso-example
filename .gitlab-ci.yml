@@ -1,0 +1,52 @@
+stages:
+  - cleanup
+  - terraform-plan
+  - terraform-apply
+
+cleanup:
+  stage: cleanup
+  image: docker:24
+  script:
+    - 'docker system prune -af'
+
+terraform-plan:
+  stage: terraform-plan
+  image: aws-sso-oidc-tools:1.0 #  We have created this image. Ref: Dockerfile. Host this image at an appropriate place.
+  #  Now we will authenticate the pipeline using OIDC.
+  id_tokens:
+    MY_OIDC_TOKEN:
+      aud: <VALUE>
+  before_script:
+    - mkdir -p ~/.aws
+    - echo "${MY_OIDC_TOKEN}" > /tmp/web_identity_token
+    - echo -e "[profile oidc]\nrole_arn=${ROLE_ARN}\nweb_identity_token_file=/tmp/web_identity_token" > ~/.aws/config
+  # - export $(printf "AWS_ACCESS_KEY_ID=%s AWS_SECRET_ACCESS_KEY=%s AWS_SESSION_TOKEN=%s" $(aws sts assume-role-with-web-identity --role-arn $ROLE_ARN --role-session-name deploylambda --web-identity-token $MY_OIDC_TOKEN --query "Credentials.[AccessKeyId,SecretAccessKey,SessionToken]" --output text))
+  # This commented line above can be added, if you need to pass AWS_ACCESS_KEY_ID & AWS_SECRET_ACCESS_KEY explicitly. Example is "serverless" npm package. These values  are required fields for the package.
+  script:
+    - cd terraform/administrators
+    - terraform init -reconfigure
+    - terraform plan -var-file users.tfvars -var="target_id=$AWS_ACCOUNT_ID"
+    - cd ../developers
+    - terraform init -reconfigure
+    - terraform plan -var-file users.tfvars -var="target_id=$AWS_ACCOUNT_ID"
+
+terraform-apply:
+  stage: terraform-apply
+  image: aws-sso-oidc-tools:1.0
+  id_tokens:
+    MY_OIDC_TOKEN:
+      aud: <VALUE>
+  before_script:
+    - mkdir -p ~/.aws
+    - echo "${MY_OIDC_TOKEN}" > /tmp/web_identity_token
+    - echo -e "[profile oidc]\nrole_arn=${ROLE_ARN}\nweb_identity_token_file=/tmp/web_identity_token" > ~/.aws/config
+  script:
+    - cd terraform/administrators
+    - terraform init -reconfigure
+    - terraform apply -var-file users.tfvars -var="target_id=$AWS_ACCOUNT_ID" -auto-approve
+    - cd ../developers
+    - terraform init -reconfigure
+    - terraform apply -var-file users.tfvars -var="target_id=$AWS_ACCOUNT_ID" -auto-approve
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
