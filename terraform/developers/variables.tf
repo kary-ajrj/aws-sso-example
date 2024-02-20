@@ -1,6 +1,11 @@
-variable "target_id" {
-  type    = string
-  default = ""
+variable "dev_target_id" {
+  type    = list(string)
+  default = [""]
+}
+
+variable "read_target_id" {
+  type    = list(string)
+  default = [""]
 }
 
 variable "dev_user_information" {
